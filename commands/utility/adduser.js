@@ -10,6 +10,6 @@ module.exports = {
         
 		await Users.create({user_id: userID, game_list: []});
 
-        return interaction.reply("added to db");
+        return interaction.reply({content: "added to db", ephemeral: true});
 	},
 };

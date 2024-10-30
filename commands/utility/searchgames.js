@@ -1,11 +1,13 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, ComponentType } = require('discord.js');
 const { EmbedBuilder } = require('discord.js');
 
-const igdb = require('igdb-api-node').default;
-const { chunk } = require ('lodash');
+const { Users } = require('../../dbObjects.js');
 
-const { apiClientId, apiAuth } = require('../../config.json');
 
+const { chunk } = require('lodash');
+
+const { APISearchGameName } = require ('../../apiCallFunctions.js');
+const { createGameEmbed } = require ('../../embedBuilder.js');
 
 
 module.exports = {
@@ -14,87 +16,146 @@ module.exports = {
 		.setDescription('Search for games on IGDB')
 		.addStringOption(option =>
 			option
-                .setName('gamename')
+				.setName('gamename')
 				.setDescription('game to search')
 				.setRequired(true)),
 	async execute(interaction) {
 		const gameName = interaction.options.getString('gamename');
+		const defaultLimit = 50;
 
-		const mainResponse = await igdb(apiClientId, apiAuth)
-            .fields(['name', 'url', 'genres.name', 'cover.url', 'first_release_date', 'category'])
-			.where('category = 0')
-			.limit(5)
-			.search(gameName)
-            .request('/games');
+		// TODO: Add check if nsfw
+		// name, url, genres.name, cover.url, first_release_date, category
+		const mainResponse = await APISearchGameName(gameName, defaultLimit);
 
 		const embeds = [];
 
-		for(const property in mainResponse.data){
-			const embed = new EmbedBuilder();
-
-			embed.setColor(0x703c78)
-
-			// handle game name title
-			embed.setTitle(mainResponse.data[property].name);
-			
-			// handle link to IGDB page
-			embed.setURL(mainResponse.data[property].url);
-
-			// handle setting genres
-			let gameGenres = "";
-			for(const genre in mainResponse.data[property].genres){
-				gameGenres += mainResponse.data[property].genres[genre].name + ", ";
-			}
-
-			// remove last comma, i could def find a better way to do this
-			gameGenres = gameGenres.slice(0, -2);
-			
-			// if theres any genres added, add to embed
-			if(gameGenres.length > 0){
-				gameGenres = "*" + gameGenres + "*";
-				embed.addFields(
-					{
-					name: "Genres:",
-					value: gameGenres,
-					inline: false
-					},
-				);
-			}
-
-			// handle adding cover
-			if(mainResponse.data[property].hasOwnProperty("cover")){
-				embed.setThumbnail("https:" + mainResponse.data[property].cover.url );
-			} else{
-				embed.setThumbnail("https://images.igdb.com/igdb/image/upload/t_cover_big/nocover.webp");
-			}
-			
-			// handle adding release date
-			if(mainResponse.data[property].hasOwnProperty("first_release_date")){
-				const date = new Date(mainResponse.data[property].first_release_date * 1000);
-				const gameDate = date.getFullYear() + "-" + date.getMonth() + "-" + date.getDay();
-				embed.setFooter({
-					text: gameDate, 
-				});
-			}
-
+		for (const property in mainResponse) {
+			embed = createGameEmbed(mainResponse[property], property)
 			embeds.push(embed);
-			
 		}
 
 		// split all of the embeds into chunks of 5
 		const splitEmbeds = chunk(embeds, 5);
+		const splitGames = chunk(mainResponse, 5);
+
+		const embedPagesLength = splitEmbeds.length - 1;
+		let currentPage = 0;
+
+		// constructing buttons and row embeds
+		const pageNumber = new ButtonBuilder()
+			.setCustomId('pageNumber')
+			.setLabel(`${currentPage + 1}/${embedPagesLength + 1}`)
+			.setStyle(ButtonStyle.Secondary)
+			.setDisabled(true)
 
 		const pageLeft = new ButtonBuilder()
-			.setCustomId('test')
-			.setLabel('test')
+			.setCustomId('pageLeft')
+			.setLabel('<')
 			.setStyle(ButtonStyle.Primary)
 
-		const row = new ActionRowBuilder()
-			.addComponents(test);
+		const pageRight = new ButtonBuilder()
+			.setCustomId('pageRight')
+			.setLabel('>')
+			.setStyle(ButtonStyle.Primary)
 
-		await interaction.reply({
-			embeds: splitEmbeds[0],
-			components: [row]
+		const pageRow = new ActionRowBuilder()
+			.addComponents(pageLeft, pageNumber, pageRight);
+
+		// buttons to select game
+		const selectRow = new ActionRowBuilder();
+		for (let i = 1; i <= 5; i++) {
+			const selectGameButton = new ButtonBuilder()
+				.setCustomId(`selectGameButton${i}`)
+				.setLabel(`${i}`)
+				.setStyle('Secondary')
+			selectRow.addComponents(selectGameButton);
+		}
+
+		refreshButtons(selectRow);
+
+		const response = await interaction.reply({
+			embeds: splitEmbeds[currentPage],
+			components: [selectRow, pageRow],
+			ephemeral: true
 		});
+
+		const collectorFilter = i => i.user.id === interaction.user.id;
+
+		const collector = await response.createMessageComponentCollector({ componentType: ComponentType.Button, filter: collectorFilter, time: 480_000 });
+
+		collector.on('collect', async i => {
+			if (i.customId.startsWith('selectGameButton')) {
+				const index = i.customId.substr(i.customId.length - 1);
+				const gameID = splitGames[currentPage][index - 1].id;
+				const gameName = splitGames[currentPage][index - 1].name;
+				const userID = interaction.user.id;
+
+				addGame(userID, gameID, gameName);
+			}
+
+
+			if (i.customId == 'pageRight') {
+				currentPage++;
+			}
+			if (i.customId == 'pageLeft') {
+				currentPage--;
+			}
+
+			if (currentPage < 0) currentPage = embedPagesLength;
+			if (currentPage > embedPagesLength) currentPage = 0;
+
+			pageNumber.setLabel((currentPage + 1) + "/" + (embedPagesLength + 1));
+
+			refreshButtons();
+
+			await i.update({
+				embeds: splitEmbeds[currentPage],
+				components: [selectRow, pageRow],
+				ephemeral: true
+			});
+		});
+
+		collector.on('end', collected => interaction.deleteReply());
+
+
+		function refreshButtons() {
+			for (let i = 0; i < 5; i++) {
+				selectRow.components[i].setDisabled(false);
+			}
+			for (let i = splitEmbeds[currentPage].length; i < 5; i++) {
+				selectRow.components[i].setDisabled(true);
+			}
+		}
+
+		async function addGame(userID, gameID, gameName) {
+			await Users.findByPk(userID)
+				.then(user => {
+					if (user) {
+						let gameList = user.game_list;
+
+						// end early if already in list
+						if (gameList.some(f => f.gameID == gameID)) {
+							interaction.followUp({ content: `Game is already in list`, ephemeral: true })
+							return;
+						}
+
+						let newGame = {
+							gameID: gameID,
+							gameName: gameName
+						};
+
+						gameList.push(newGame);
+
+						Users.update({ game_list: gameList }, { where: { user_id: userID } });
+
+						return user.save();
+					} else {
+						return interaction.followUp({ content: 'User not found, /adduser to create', ephemeral: true });
+					}
+				})
+				.catch(err => {
+					console.log('Error:', err);
+				});
+		}
 	},
 };
