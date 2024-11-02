@@ -1,12 +1,16 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, ComponentType } = require('discord.js');
 const { EmbedBuilder } = require('discord.js');
 
-function createGameEmbed(gameData, index) {
+async function createGameEmbed(gameData, index) {
     const embed = new EmbedBuilder();
     embed.setColor(0x703c78)
 
     // handle game name title
-    embed.setTitle(`${(index % 5) + 1}: ${gameData.name}`);
+    if(index == -1){
+        embed.setTitle(`${gameData.name}`);
+    }
+    else{
+        embed.setTitle(`${(index % 5) + 1}: ${gameData.name}`);
+    }
 
     // handle link to IGDB page
     embed.setURL(`${gameData.url}`);

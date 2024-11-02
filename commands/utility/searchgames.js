@@ -1,5 +1,4 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, ComponentType } = require('discord.js');
-const { EmbedBuilder } = require('discord.js');
 
 const { Users } = require('../../dbObjects.js');
 
@@ -21,17 +20,23 @@ module.exports = {
 				.setRequired(true)),
 	async execute(interaction) {
 		const gameName = interaction.options.getString('gamename');
-		const defaultLimit = 50;
+		const defaultLimit = 5;
 
 		// TODO: Add check if nsfw
 		// name, url, genres.name, cover.url, first_release_date, category
 		const mainResponse = await APISearchGameName(gameName, defaultLimit);
 
+		if(mainResponse.length == 0){
+			return interaction.reply({
+				content: `No games found!`,
+				ephemeral: true,
+			});
+		}
 		const embeds = [];
 
 		for (const property in mainResponse) {
-			embed = createGameEmbed(mainResponse[property], property)
-			embeds.push(embed);
+			newEmbed = await createGameEmbed(mainResponse[property], property)
+			embeds.push(newEmbed);
 		}
 
 		// split all of the embeds into chunks of 5
@@ -128,34 +133,35 @@ module.exports = {
 		}
 
 		async function addGame(userID, gameID, gameName) {
-			await Users.findByPk(userID)
-				.then(user => {
-					if (user) {
-						let gameList = user.game_list;
-
-						// end early if already in list
-						if (gameList.some(f => f.gameID == gameID)) {
-							interaction.followUp({ content: `Game is already in list`, ephemeral: true })
-							return;
-						}
-
-						let newGame = {
-							gameID: gameID,
-							gameName: gameName
-						};
-
-						gameList.push(newGame);
-
-						Users.update({ game_list: gameList }, { where: { user_id: userID } });
-
-						return user.save();
-					} else {
-						return interaction.followUp({ content: 'User not found, /adduser to create', ephemeral: true });
+			await Users.findOrCreate({
+				where: {user_id: userID},
+				defaults: {
+					user_id: userID,
+					game_list: [],
+				}
+			}).then(user => {
+				if(user){
+					let gameList = user[0].dataValues.game_list;
+					
+					// end early if already in list
+					if (gameList.some(f => f.gameID == gameID)) {
+						interaction.followUp({ content: `${gameName} already in games.`, ephemeral: true })
+						return;
 					}
-				})
-				.catch(err => {
-					console.log('Error:', err);
-				});
+	
+					let newGame = {
+						gameID: gameID,
+						gameName: gameName
+					};
+	
+					gameList.push(newGame);
+	
+					Users.update({ game_list: gameList }, { where: { user_id: userID } });
+					
+					interaction.followUp({ content: `${gameName} added to games.`, ephemeral: true })
+					return;
+				}
+			})
 		}
 	},
 };
