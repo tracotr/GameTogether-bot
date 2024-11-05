@@ -20,7 +20,7 @@ module.exports = {
 				.setRequired(true)),
 	async execute(interaction) {
 		const gameName = interaction.options.getString('gamename');
-		const defaultLimit = 5;
+		const defaultLimit = 50;
 
 		// TODO: Add check if nsfw
 		// name, url, genres.name, cover.url, first_release_date, category

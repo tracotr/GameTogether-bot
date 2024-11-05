@@ -4,7 +4,7 @@ const { EmbedBuilder } = require('discord.js');
 const { Users } = require('../../dbObjects.js');
 
 const { APISearchGameID } = require('../../apiCallFunctions.js');
-const { createGameEmbed } = require ('../../embedBuilder.js');
+const { createGameEmbed } = require('../../embedBuilder.js');
 
 
 module.exports = {
@@ -17,10 +17,10 @@ module.exports = {
             .setTitle("Game Queue")
             .addFields(
                 {
-                name: "Queue",
-                value: '\u200b',
-                inline: false
-            });
+                    name: "Queue",
+                    value: '\u200b',
+                    inline: false
+                });
 
         const joinQueue = new ButtonBuilder()
             .setCustomId('joinQueue')
@@ -34,17 +34,18 @@ module.exports = {
             .setEmoji('🔃')
             .setLabel('Reroll')
             .setStyle(ButtonStyle.Primary)
-            .setDisabled(false);
+            .setDisabled(true);
 
         const queueControlsRow = new ActionRowBuilder()
             .addComponents(joinQueue, rerollQueue);
+
 
         const response = await interaction.reply({
             embeds: [queueEmbed],
             components: [queueControlsRow]
         });
 
-        const collector = await response.createMessageComponentCollector({ componentType: ComponentType.Button, time: 5_000 });
+        const collector = await response.createMessageComponentCollector({ componentType: ComponentType.Button, time: 600_000 });
 
         const current_user_list = [];
         collector.on('collect', async i => {
@@ -55,19 +56,32 @@ module.exports = {
                 try {
                     if (!current_user_list.includes(userID)) {
                         current_user_list.push(userID);
-                        
-                        let userString = "";
-                        current_user_list.forEach((user) => userString += `<@${user}> `)
-                        queueEmbed.setFields({
-                            name: "Queue",
-                            value: userString,
-                        })
+
+                        await Users.findByPk(userID)
+                            .then(user => {
+                                if (user) {
+                                    let userString = "";
+
+                                    current_user_list.forEach((user) => userString += `<@${user}> `)
+                                    queueEmbed.setFields({
+                                        name: "Queue",
+                                        value: userString,
+                                    })
+                                }
+                                else {
+                                    return interaction.followUp({
+                                        content: `Profile not found, add a game to create`,
+                                        ephemeral: true
+                                    });
+                                }
+                            })
+
                         await i.update({
                             embeds: [queueEmbed],
                         })
                     }
                     else {
-                        await i.reply({
+                        i.reply({
                             content: "You're already in queue!",
                             ephemeral: true
                         })
@@ -90,13 +104,10 @@ module.exports = {
                                 games.push(...user.game_list);
                             } else {
                                 return interaction.followUp({
-                                    content: 'User not found, add a game to create',
+                                    content: `${i.user.username} not found, add a game to create`,
                                     ephemeral: true
                                 });
                             }
-                        })
-                        .catch(err => {
-                            console.log('Error:', err);
                         })
                 }
 
@@ -105,7 +116,7 @@ module.exports = {
                 try {
                     let result = [];
 
-                    if(current_user_list.length > 1){
+                    if (current_user_list.length > 1) {
                         // find similar ids in each list
                         const gameCountMap = new Map();
                         // for everything in games, add 1 to map if it appears
@@ -113,13 +124,13 @@ module.exports = {
 
                         // adds to result if count is > 1 and adds only once if already in array
                         result = games.filter((game, index, self) => {
-                            return gameCountMap.get(game.gameID)  > 1
+                            return gameCountMap.get(game.gameID) > 1
                                 && self.findIndex(g => g.gameID === game.gameID) === index;
                         });
-                    } 
-                    else{
+                    }
+                    else {
                         result.push(...games)
-                    } 
+                    }
 
                     const randomResultIndex = Math.floor(Math.random() * result.length)
                     chosenGame = result[randomResultIndex];
@@ -131,17 +142,17 @@ module.exports = {
                 const chosenGameData = await APISearchGameID(chosenGame.gameID, 1);
                 const chosenGameEmbed = await createGameEmbed(chosenGameData[0], -1);
 
-                await i.update({ 
+                await i.update({
                     embeds: [queueEmbed, chosenGameEmbed],
                 });
             }
         });
 
         collector.on('end', async i => {
-            for(const property in queueControlsRow.components){
+            for (const property in queueControlsRow.components) {
                 queueControlsRow.components[property].setDisabled(true);
             }
-            
+
             interaction.editReply({
                 components: [queueControlsRow],
             });
