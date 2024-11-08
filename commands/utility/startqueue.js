@@ -2,7 +2,7 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, Compo
 
 const { Users } = require('../../dbObjects.js');
 
-const { APISearchGameName } = require ('../../utils/apiCallFunctions.js');
+const { APISearchGameID } = require ('../../utils/apiCallFunctions.js');
 const { createGameEmbed } = require ('../../utils/embedBuilder.js');
 const { createButton } = require ('../../utils/buttonBuilder.js');
 
@@ -11,6 +11,7 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName('startqueue')
         .setDescription('join queue'),
+
     async execute(interaction) {
         const queueEmbed = new EmbedBuilder()
             .setColor(0x703c78)
@@ -54,49 +55,38 @@ module.exports = {
 
             // if join, add current user id to queue for processing
             if (i.customId == 'joinQueue') {
-                try {
-                    if (!current_user_list.includes(userID)) {
-                        await Users.findByPk(userID)
-                            .then(user => {
-                                if (user) {
-                                    current_user_list.push(userID);
-                                }
-                                else {
-                                    return i.reply({
-                                        content: `Profile not found, add a game to create`,
-                                        ephemeral: true
-                                    });
-                                }
-                            })
-
-                        UpdateQueue();
-                    }
-                    else {
+                if (!current_user_list.includes(userID)) {
+                    const user = await Users.findByPk(userID)
+                    if (user) {
+                        current_user_list.push(userID);
+                    } else {
                         return i.reply({
-                            content: "You're already in queue!",
+                            content: `Profile not found, add a game to create`,
                             ephemeral: true
-                        })
+                        });
                     }
-                } catch (e) {
-                    console.log(e);
+
+                    UpdateQueue();
+                }
+                else {
+                    return i.reply({
+                        content: "You're already in queue!",
+                        ephemeral: true
+                    })
                 }
             }
 
             if (i.customId == 'leaveQueue'){
-                try{
-                    const index = current_user_list.findIndex((user) => user == userID);
-                    if(index > -1){
-                        current_user_list.splice(index, 1);
-                        UpdateQueue();
-                        
-                    } else{
-                        return i.reply({
-                            content: "You're not in queue!",
-                            ephemeral: true
-                        })
-                    }
-                } catch (e) {
-                    console.log(e);
+                const index = current_user_list.findIndex((user) => user == userID);
+                if(index > -1){
+                    current_user_list.splice(index, 1);
+                    UpdateQueue();
+                    
+                } else{
+                    return i.reply({
+                        content: "You're not in queue!",
+                        ephemeral: true
+                    })
                 }
             }
 
@@ -108,17 +98,15 @@ module.exports = {
 
                 // loop through all, finding each game ist and adding to games
                 for (const userID of current_user_list) {
-                    await Users.findByPk(userID)
-                        .then(user => {
-                            if (user) {
-                                games.push(...user.game_list);
-                            } else {
-                                return interaction.followUp({
-                                    content: `${i.user.username} not found, add a game to create`,
-                                    ephemeral: true
-                                });
-                            }
-                        })
+                    const user = await Users.findByPk(userID)
+                    if (user) {
+                        games.push(...user.game_list);
+                    } else {
+                        return interaction.followUp({
+                            content: `${i.user.username} not found, add a game to create`,
+                            ephemeral: true
+                        });
+                    }
                 }
 
                 let chosenGame;
@@ -144,12 +132,12 @@ module.exports = {
 
                     const randomResultIndex = Math.floor(Math.random() * result.length)
                     chosenGame = result[randomResultIndex];
-                    console.log(chosenGame);
                 }
                 catch (error) {
                     console.log("empty games array");
                 }
 
+                // if no game found, put no game found embed
                 if(chosenGame != undefined){
                     const chosenGameData = await APISearchGameID(chosenGame.gameID, 1);
                     const chosenGameEmbed = await createGameEmbed(chosenGameData[0], -1);
@@ -165,6 +153,7 @@ module.exports = {
                 
             }
 
+            // cant reroll if no one in queue!
             if (current_user_list.length > 0) {
                 rerollQueue.setDisabled(false);
             } else {
@@ -187,6 +176,7 @@ module.exports = {
             });
         })
 
+        // updates queue embed
         function UpdateQueue(){
             let _userString = "";
 

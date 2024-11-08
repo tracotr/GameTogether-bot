@@ -4,7 +4,8 @@ const { EmbedBuilder } = require('discord.js');
 module.exports = {
 	data: new SlashCommandBuilder()
 		.setName('user')
-		.setDescription('Provides information about the user.'),
+		.setDescription('provides information about your account'),
+
 	async execute(interaction) {
 		const user = new EmbedBuilder()
 		user.setImage(interaction.user.avatarURL())

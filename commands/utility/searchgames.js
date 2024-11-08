@@ -13,18 +13,17 @@ const { createGameEmbed } = require ('../../utils/embedBuilder.js');
 module.exports = {
 	data: new SlashCommandBuilder()
 		.setName('searchgames')
-		.setDescription('Search for games on IGDB')
+		.setDescription('search and add games from IGDB')
 		.addStringOption(option =>
 			option
 				.setName('gamename')
 				.setDescription('game to search')
 				.setRequired(true)),
+
 	async execute(interaction) {
 		const gameName = interaction.options.getString('gamename');
 		const defaultLimit = 50;
 
-		// TODO: Add check if nsfw
-		// name, url, genres.name, cover.url, first_release_date, category
 		let mainResponse;
 
 		try{
@@ -41,6 +40,7 @@ module.exports = {
 			return interaction.reply({ content: 'There was an error retrieving game data. Please try again later.', ephemeral: true });
 		}
 
+		// create a list of embeds for every game given by api
 		const embeds = [];
 
 		for (const property in mainResponse) {
