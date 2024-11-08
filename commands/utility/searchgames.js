@@ -1,12 +1,13 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, ComponentType } = require('discord.js');
+const { ActionRowBuilder, SlashCommandBuilder, ComponentType, ButtonStyle } = require('discord.js');
 
 const { Users } = require('../../dbObjects.js');
 
 
 const { chunk } = require('lodash');
 
-const { APISearchGameName } = require ('../../apiCallFunctions.js');
-const { createGameEmbed } = require ('../../embedBuilder.js');
+const { APISearchGameName } = require ('../../utils/apiCallFunctions.js');
+const { createButton } = require ('../../utils/buttonBuilder.js');
+const { createGameEmbed } = require ('../../utils/embedBuilder.js');
 
 
 module.exports = {
@@ -24,18 +25,26 @@ module.exports = {
 
 		// TODO: Add check if nsfw
 		// name, url, genres.name, cover.url, first_release_date, category
-		const mainResponse = await APISearchGameName(gameName, defaultLimit);
+		let mainResponse;
 
-		if(mainResponse.length == 0){
-			return interaction.reply({
-				content: `No games found!`,
-				ephemeral: true,
-			});
+		try{
+			mainResponse = await APISearchGameName(gameName, defaultLimit);
+
+			if(mainResponse.length == 0){
+				return interaction.reply({
+					content: `No games found!`,
+					ephemeral: true,
+				});
+			}
+		} catch(e){
+			console.error('Error fetching game data:', error);
+			return interaction.reply({ content: 'There was an error retrieving game data. Please try again later.', ephemeral: true });
 		}
+
 		const embeds = [];
 
 		for (const property in mainResponse) {
-			newEmbed = await createGameEmbed(mainResponse[property], property)
+			const newEmbed = await createGameEmbed(mainResponse[property], property)
 			embeds.push(newEmbed);
 		}
 
@@ -47,36 +56,19 @@ module.exports = {
 		let currentPage = 0;
 
 		// constructing buttons and row embeds
-		const pageNumber = new ButtonBuilder()
-			.setCustomId('pageNumber')
-			.setLabel(`${currentPage + 1}/${embedPagesLength + 1}`)
-			.setStyle(ButtonStyle.Secondary)
-			.setDisabled(true)
+		const pageNumber = createButton(`${currentPage + 1}/${embedPagesLength + 1}`, 'pageNumber', ButtonStyle.Secondary, true);
 
-		const pageLeft = new ButtonBuilder()
-			.setCustomId('pageLeft')
-			.setLabel('<')
-			.setStyle(ButtonStyle.Primary)
+		const pageLeft = createButton('<', 'pageLeft', ButtonStyle.Primary);
 
-		const pageRight = new ButtonBuilder()
-			.setCustomId('pageRight')
-			.setLabel('>')
-			.setStyle(ButtonStyle.Primary)
+		const pageRight = createButton('>', 'pageRight', ButtonStyle.Primary);
 
 		const pageRow = new ActionRowBuilder()
 			.addComponents(pageLeft, pageNumber, pageRight);
 
 		// buttons to select game
-		const selectRow = new ActionRowBuilder();
-		for (let i = 1; i <= 5; i++) {
-			const selectGameButton = new ButtonBuilder()
-				.setCustomId(`selectGameButton${i}`)
-				.setLabel(`${i}`)
-				.setStyle('Secondary')
-			selectRow.addComponents(selectGameButton);
-		}
+		const selectRow = createButtonsRow();
 
-		refreshButtons(selectRow);
+		updateButtonStates(selectRow);
 
 		const response = await interaction.reply({
 			embeds: splitEmbeds[currentPage],
@@ -100,18 +92,16 @@ module.exports = {
 
 
 			if (i.customId == 'pageRight') {
-				currentPage++;
+				currentPage = (currentPage + 1) % (embedPagesLength + 1);
 			}
 			if (i.customId == 'pageLeft') {
-				currentPage--;
+				currentPage = (currentPage - 1 + (embedPagesLength + 1)) % (embedPagesLength + 1);
 			}
 
-			if (currentPage < 0) currentPage = embedPagesLength;
-			if (currentPage > embedPagesLength) currentPage = 0;
 
 			pageNumber.setLabel((currentPage + 1) + "/" + (embedPagesLength + 1));
 
-			refreshButtons();
+			updateButtonStates();
 
 			await i.update({
 				embeds: splitEmbeds[currentPage],
@@ -123,7 +113,18 @@ module.exports = {
 		collector.on('end', collected => interaction.deleteReply());
 
 
-		function refreshButtons() {
+		function createButtonsRow(){
+			const row = new ActionRowBuilder();
+
+			for (let i = 1; i <= 5; i++) {
+				const selectGameButton = createButton(`${i}`, `selectGameButton${i}`, 'Secondary');
+				row.addComponents(selectGameButton);
+			}
+
+			return row;
+		}
+
+		function updateButtonStates() {
 			for (let i = 0; i < 5; i++) {
 				selectRow.components[i].setDisabled(false);
 			}
@@ -132,36 +133,30 @@ module.exports = {
 			}
 		}
 
-		async function addGame(userID, gameID, gameName) {
-			await Users.findOrCreate({
-				where: {user_id: userID},
+		async function addGame(_userID, _gameID, _gameName) {
+			const user = await Users.findOrCreate({
+				where: {user_id: _userID},
 				defaults: {
-					user_id: userID,
+					user_id: _userID,
 					game_list: [],
 				}
-			}).then(user => {
-				if(user){
-					let gameList = user[0].dataValues.game_list;
-					
-					// end early if already in list
-					if (gameList.some(f => f.gameID == gameID)) {
-						interaction.followUp({ content: `${gameName} already in games.`, ephemeral: true })
-						return;
-					}
-	
-					let newGame = {
-						gameID: gameID,
-						gameName: gameName
-					};
-	
-					gameList.push(newGame);
-	
-					Users.update({ game_list: gameList }, { where: { user_id: userID } });
-					
-					interaction.followUp({ content: `${gameName} added to games.`, ephemeral: true })
+			});
+
+			if(user){
+				let gameList = user[0].dataValues.game_list;
+				
+				// end early if already in list
+				if (gameList.some(f => f.gameID == _gameID)) {
+					interaction.followUp({ content: `${_gameName} already in games.`, ephemeral: true })
 					return;
 				}
-			})
+
+				gameList.push({gameID: _gameID, gameName: _gameName});
+
+				await Users.update({ game_list: gameList }, { where: { user_id: _userID } });
+				
+				await interaction.followUp({ content: `${_gameName} added to games.`, ephemeral: true })
+			}
 		}
 	},
 };

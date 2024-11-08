@@ -1,5 +1,5 @@
 const igdb = require('igdb-api-node').default;
-const { apiClientId, apiAuth } = require('./config.json');
+const { apiClientId, apiAuth } = require('../config.json');
 
 async function APISearchGameName(name, limit){
     const response =  await igdb(apiClientId, apiAuth)

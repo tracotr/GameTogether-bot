@@ -1,10 +1,10 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, ComponentType } = require('discord.js');
-const { EmbedBuilder } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, ComponentType, EmbedBuilder } = require('discord.js');
 
 const { Users } = require('../../dbObjects.js');
 
-const { APISearchGameID } = require('../../apiCallFunctions.js');
-const { createGameEmbed } = require('../../embedBuilder.js');
+const { APISearchGameName } = require ('../../utils/apiCallFunctions.js');
+const { createGameEmbed } = require ('../../utils/embedBuilder.js');
+const { createButton } = require ('../../utils/buttonBuilder.js');
 
 
 module.exports = {
@@ -22,22 +22,20 @@ module.exports = {
                     inline: false
                 });
 
-        const joinQueue = new ButtonBuilder()
-            .setCustomId('joinQueue')
-            .setEmoji('✅')
-            .setLabel('Join')
-            .setStyle(ButtonStyle.Success)
-            .setDisabled(false);
+        const joinQueue = createButton('Join', 'joinQueue', ButtonStyle.Success) 
+            .setEmoji('1177022754684424295');
 
-        const rerollQueue = new ButtonBuilder()
-            .setCustomId('rerollQueue')
-            .setEmoji('🔃')
-            .setLabel('Reroll')
-            .setStyle(ButtonStyle.Primary)
-            .setDisabled(true);
+
+         const leaveQueue = createButton('Leave', 'leaveQueue', ButtonStyle.Danger)
+            .setEmoji('1115561769289650216');
+
+
+        const rerollQueue = createButton('Reroll', 'rerollQueue', ButtonStyle.Primary, true)
+            .setEmoji('932616415704391720');
+
 
         const queueControlsRow = new ActionRowBuilder()
-            .addComponents(joinQueue, rerollQueue);
+            .addComponents(joinQueue, leaveQueue, rerollQueue);
 
 
         const response = await interaction.reply({
@@ -48,40 +46,33 @@ module.exports = {
         const collector = await response.createMessageComponentCollector({ componentType: ComponentType.Button, time: 600_000 });
 
         const current_user_list = [];
+        const newEmbeds = [];
+        newEmbeds[0] = queueEmbed;
+
         collector.on('collect', async i => {
+            const userID = i.user.id;
+
             // if join, add current user id to queue for processing
             if (i.customId == 'joinQueue') {
-                const userID = i.user.id;
-
                 try {
                     if (!current_user_list.includes(userID)) {
-                        current_user_list.push(userID);
-
                         await Users.findByPk(userID)
                             .then(user => {
                                 if (user) {
-                                    let userString = "";
-
-                                    current_user_list.forEach((user) => userString += `<@${user}> `)
-                                    queueEmbed.setFields({
-                                        name: "Queue",
-                                        value: userString,
-                                    })
+                                    current_user_list.push(userID);
                                 }
                                 else {
-                                    return interaction.followUp({
+                                    return i.reply({
                                         content: `Profile not found, add a game to create`,
                                         ephemeral: true
                                     });
                                 }
                             })
 
-                        await i.update({
-                            embeds: [queueEmbed],
-                        })
+                        UpdateQueue();
                     }
                     else {
-                        i.reply({
+                        return i.reply({
                             content: "You're already in queue!",
                             ephemeral: true
                         })
@@ -90,6 +81,25 @@ module.exports = {
                     console.log(e);
                 }
             }
+
+            if (i.customId == 'leaveQueue'){
+                try{
+                    const index = current_user_list.findIndex((user) => user == userID);
+                    if(index > -1){
+                        current_user_list.splice(index, 1);
+                        UpdateQueue();
+                        
+                    } else{
+                        return i.reply({
+                            content: "You're not in queue!",
+                            ephemeral: true
+                        })
+                    }
+                } catch (e) {
+                    console.log(e);
+                }
+            }
+
 
             // if refresh to find game
             if (i.customId == 'rerollQueue') {
@@ -116,6 +126,7 @@ module.exports = {
                 try {
                     let result = [];
 
+                    // if list has more than 1 person
                     if (current_user_list.length > 1) {
                         // find similar ids in each list
                         const gameCountMap = new Map();
@@ -127,25 +138,43 @@ module.exports = {
                             return gameCountMap.get(game.gameID) > 1
                                 && self.findIndex(g => g.gameID === game.gameID) === index;
                         });
-                    }
-                    else {
+                    } else {
                         result.push(...games)
                     }
 
                     const randomResultIndex = Math.floor(Math.random() * result.length)
                     chosenGame = result[randomResultIndex];
+                    console.log(chosenGame);
                 }
                 catch (error) {
                     console.log("empty games array");
                 }
 
-                const chosenGameData = await APISearchGameID(chosenGame.gameID, 1);
-                const chosenGameEmbed = await createGameEmbed(chosenGameData[0], -1);
+                if(chosenGame != undefined){
+                    const chosenGameData = await APISearchGameID(chosenGame.gameID, 1);
+                    const chosenGameEmbed = await createGameEmbed(chosenGameData[0], -1);
+                    newEmbeds[1] = chosenGameEmbed;
+                } else{
+                    const noChosenGameEmbed = await new EmbedBuilder()
+                        .setColor(0x703c78)
+                        .setTitle("No game found?")
+                        .setDescription("Add more games :smile:")
+                        newEmbeds[1] = noChosenGameEmbed;
+                }
 
-                await i.update({
-                    embeds: [queueEmbed, chosenGameEmbed],
-                });
+                
             }
+
+            if (current_user_list.length > 0) {
+                rerollQueue.setDisabled(false);
+            } else {
+                rerollQueue.setDisabled(true);
+            }
+
+            await i.update({
+                embeds: newEmbeds,
+                components: [queueControlsRow],
+            })
         });
 
         collector.on('end', async i => {
@@ -157,5 +186,22 @@ module.exports = {
                 components: [queueControlsRow],
             });
         })
+
+        function UpdateQueue(){
+            let _userString = "";
+
+            if(current_user_list.length > 0){
+                current_user_list.forEach((user) => _userString += `<@${user}> `);
+            } else{
+                _userString = '\u200b';
+            }
+
+            queueEmbed.setFields({
+                name: "Queue",
+                value: _userString,
+            });
+
+            newEmbeds[0] = queueEmbed;
+        }
     },
 };
